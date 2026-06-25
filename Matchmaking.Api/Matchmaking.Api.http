@@ -1,0 +1,11 @@
+@Matchmaking.Api_HostAddress = http://localhost:5147
+
+POST {{Matchmaking.Api_HostAddress}}/api/matchmaking/queue
+Content-Type: application/json
+
+{
+  "userId": "test1",
+  "score": 1500
+}
+
+###
