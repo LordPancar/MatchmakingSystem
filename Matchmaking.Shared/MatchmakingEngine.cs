@@ -13,7 +13,29 @@ namespace Matchmaking.Shared;
 
     public List<MatchResult> TryMatch()
     {
-        var results = new
+        var results = new List<MatchResult>();
+        var sorted = _queue.OrderBy(r => r.Score).ToList();
+
+        for(int i = 0;i < sorted.Count - 1;i++)
+        {
+            var a = sorted[i];
+            var b = sorted[i + 1];
+            var diff = Math.Abs(a.Score - b.Score);
+
+            if ( diff <= MaxScoreDifference)
+            {
+                results.Add(new MatchResult
+                {
+                    Player1Id = a.UserId,
+                    Player2Id = b.UserId,
+                    ScoreDifference = diff
+                });
+                _queue.Remove(a);
+                _queue.Remove(b);
+
+            }
+        }
+        return results;
     }
     }
 
