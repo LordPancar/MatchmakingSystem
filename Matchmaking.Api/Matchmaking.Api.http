@@ -8,4 +8,34 @@ Content-Type: application/json
   "score": 1500
 }
 
+
+
+
+###
+POST {{Matchmaking.Api_HostAddress}}/api/matchmaking/queue
+Content-Type: application/json
+
+{
+  "userId": "test2",
+  "score": 1530
+}
+###
+POST {{Matchmaking.Api_HostAddress}}/api/matchmaking/queue
+Content-Type: application/json
+
+{
+  "userId": "test3",
+  "score": 1600
+}
+###
+POST {{Matchmaking.Api_HostAddress}}/api/matchmaking/queue
+Content-Type: application/json
+
+{
+  "userId": "test4",
+  "score": 1650
+}
+###
+GET {{Matchmaking.Api_HostAddress}}/api/matchmaking/leaderboard
+
 ###

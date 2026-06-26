@@ -28,6 +28,8 @@ namespace Matchmaking.Shared;
                 {
                     Player1Id = a.UserId,
                     Player2Id = b.UserId,
+                    Score1 = a.Score,
+                    Score2 = b.Score,
                     ScoreDifference = diff
                 });
                 _queue.Remove(a);

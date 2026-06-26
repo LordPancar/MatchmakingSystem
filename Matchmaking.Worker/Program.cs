@@ -2,9 +2,12 @@ using MassTransit;
 using Matchmaking.Shared;
 using Matchmaking.Worker;
 using MatchMaking.Shared;
+using StackExchange.Redis;
 
 var builder = Host.CreateApplicationBuilder(args);
 builder.Services.AddSingleton<MatchmakingEngine>();
+builder.Services.AddSingleton<IConnectionMultiplexer>(
+    sp => ConnectionMultiplexer.Connect("localhost:6379"));
 
 builder.Services.AddMassTransit(x =>
 {
