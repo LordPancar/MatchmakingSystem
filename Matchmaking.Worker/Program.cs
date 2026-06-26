@@ -5,9 +5,12 @@ using MatchMaking.Shared;
 using StackExchange.Redis;
 
 var builder = Host.CreateApplicationBuilder(args);
+var rabbitHost = builder.Configuration["RabbitMq:Host"] ?? "localhost";
+var redisConnection = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
+
 builder.Services.AddSingleton<MatchmakingEngine>();
 builder.Services.AddSingleton<IConnectionMultiplexer>(
-    sp => ConnectionMultiplexer.Connect("localhost:6379"));
+    sp => ConnectionMultiplexer.Connect(redisConnection));
 
 builder.Services.AddMassTransit(x =>
 {
@@ -15,7 +18,7 @@ builder.Services.AddMassTransit(x =>
 
     x.UsingRabbitMq((context, cfg) =>
     {
-        cfg.Host("localhost", "/", h =>
+        cfg.Host(rabbitHost, "/", h =>
         {
             h.Username("guest");
             h.Password("guest");

@@ -10,3 +10,27 @@ services:
     image: redis:latest
     ports:
       - "6379:6379"
+
+  matchmaking-api:
+    build:
+      context: .
+      dockerfile: Matchmaking.Api/Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - RabbitMq__Host=rabbitmq
+      - Redis__ConnectionString=redis:6379
+    depends_on:
+      - rabbitmq
+      - redis
+
+  matchmaking-worker:
+    build:
+      context: .
+      dockerfile: Matchmaking.Worker/Dockerfile
+    environment:
+      - RabbitMq__Host=rabbitmq
+      - Redis__ConnectionString=redis:6379
+    depends_on:
+      - rabbitmq
+      - redis
