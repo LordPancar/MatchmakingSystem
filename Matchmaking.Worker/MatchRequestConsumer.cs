@@ -35,6 +35,15 @@ public class MatchRequestConsumer : IConsumer<MatchRequest>
             await db.SortedSetAddAsync("leaderboard", match.Player1Id, match.Score1);
             await db.SortedSetAddAsync("leaderboard", match.Player2Id, match.Score2);
 
+            await context.Publish(new MatchCompletedEvent
+            {
+                MatchId = match.MatchId,
+                Player1Id = match.Player1Id,
+                Player2Id = match.Player2Id
+            });
+
+            _logger.LogInformation("MatchCompletedEvent yayınlandı: {MatchId}", match.MatchId);
+
         }
 
     }
