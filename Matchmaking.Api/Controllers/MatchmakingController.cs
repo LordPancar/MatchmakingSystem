@@ -23,6 +23,15 @@ public class MatchmakingController : ControllerBase
     [HttpPost("queue")]
     public async Task<IActionResult> QueueRequest([FromBody] MatchRequest request)
     {
+        if (string.IsNullOrWhiteSpace(request.UserId))
+        {
+            return BadRequest(new { message = "UserId boş olamaz." });
+        }
+
+        if (request.Score < 0)
+        {
+            return BadRequest(new { message = "Score negatif olamaz." });
+        }
         await _publishEndpoint.Publish(request);
         return Accepted(new { message = "Kuyruğa alındı.", requestId = request.RequestId });
     }
