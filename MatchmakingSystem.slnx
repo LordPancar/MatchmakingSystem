@@ -2,5 +2,6 @@
   <Folder Name="/Solution Items/" />
   <Project Path="Matchmaking.Api/Matchmaking.Api.csproj" Id="3e244ffb-4210-4719-a0a4-89fe87f1e4b0" />
   <Project Path="Matchmaking.Shared/Matchmaking.Shared.csproj" Id="53e48663-1858-4340-95b5-1210b0ab0d76" />
+  <Project Path="Matchmaking.Test/Matchmaking.Test.csproj" Id="df35d6ea-20f3-47f3-b8a9-7ea783545295" />
   <Project Path="Matchmaking.Worker/Matchmaking.Worker.csproj" Id="31fa0d03-2ba0-49b7-87ce-a19de6f400db" />
 </Solution>
