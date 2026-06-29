@@ -8,9 +8,15 @@ var builder = Host.CreateApplicationBuilder(args);
 var rabbitHost = builder.Configuration["RabbitMq:Host"] ?? "localhost";
 var redisConnection = builder.Configuration["Redis:ConnectionString"] ?? "localhost:6379";
 
-builder.Services.AddSingleton<MatchmakingEngine>();
-builder.Services.AddSingleton<IConnectionMultiplexer>(
-    sp => ConnectionMultiplexer.Connect(redisConnection));
+builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+{
+    var options = ConfigurationOptions.Parse(redisConnection);
+    // Baglanti kurulamazsa hata firlatma; arka planda yeniden denemeye devam et.
+    // (Deploy/restart/scale anlarinda gecici kopmalarda mesajin fault olmasini onler.)
+    options.AbortOnConnectFail = false;
+    return ConnectionMultiplexer.Connect(options);
+});
+builder.Services.AddSingleton<RedisMatchmaker>();
 
 builder.Services.AddMassTransit(x =>
 {
@@ -23,6 +29,8 @@ builder.Services.AddMassTransit(x =>
             h.Username("guest");
             h.Password("guest");
         });
+        // Gecici hatalarda mesaji hemen fault'a dusurme: 500ms arayla 5 kez yeniden dene.
+        cfg.UseMessageRetry(r => r.Interval(5, TimeSpan.FromMilliseconds(500)));
         cfg.ConfigureEndpoints(context);
     });
 });

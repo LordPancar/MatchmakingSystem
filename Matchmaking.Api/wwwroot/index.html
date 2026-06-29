@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Matchmaking Paneli</title>
+    <style>
+        :root {
+            --bg: #0f1117;
+            --card: #1a1d27;
+            --border: #2a2e3a;
+            --text: #e6e8ee;
+            --muted: #8b90a0;
+            --accent: #4f8cff;
+            --accent2: #ffb347;
+            --ok: #3ddc84;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            padding: 24px;
+        }
+        h1 { font-size: 22px; margin: 0 0 4px; }
+        .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; max-width: 900px; }
+        @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+        .card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+        }
+        .card h2 {
+            font-size: 14px; text-transform: uppercase; letter-spacing: .5px;
+            color: var(--muted); margin: 0 0 12px;
+        }
+        .full { grid-column: 1 / -1; }
+        form { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; }
+        .field { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: 12px; color: var(--muted); }
+        input {
+            background: #0f1117; border: 1px solid var(--border); color: var(--text);
+            border-radius: 8px; padding: 9px 11px; font-size: 14px; width: 160px;
+        }
+        button {
+            background: var(--accent); color: #fff; border: none; border-radius: 8px;
+            padding: 10px 16px; font-size: 14px; cursor: pointer; font-weight: 600;
+        }
+        button:hover { filter: brightness(1.1); }
+        button.ghost { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+        th { color: var(--muted); font-weight: 500; font-size: 12px; }
+        td.score { font-variant-numeric: tabular-nums; color: var(--accent2); }
+        .rank { color: var(--muted); width: 32px; }
+        .empty { color: var(--muted); font-size: 13px; padding: 12px 0; }
+        .toast {
+            position: fixed; bottom: 20px; right: 20px; background: var(--card);
+            border: 1px solid var(--border); border-left: 3px solid var(--ok);
+            padding: 12px 16px; border-radius: 8px; font-size: 14px; opacity: 0;
+            transition: opacity .2s; pointer-events: none;
+        }
+        .toast.show { opacity: 1; }
+        .toast.err { border-left-color: #ff5c5c; }
+        .badge { background: #0f1117; border: 1px solid var(--border); border-radius: 20px;
+                 padding: 2px 10px; font-size: 12px; color: var(--muted); margin-left: 8px; }
+        .live { font-size: 11px; color: var(--ok); }
+    </style>
+</head>
+<body>
+    <h1>🎮 Matchmaking Paneli</h1>
+    <div class="sub">Oyuncu ekle, eşleşmeleri ve bekleyenleri canlı izle · <span class="live">● 2sn'de bir yenilenir</span></div>
+
+    <div class="grid">
+        <div class="card full">
+            <h2>Oyuncu Ekle</h2>
+            <form id="addForm">
+                <div class="field">
+                    <label for="userId">Kullanıcı ID</label>
+                    <input id="userId" placeholder="ör. ali" required />
+                </div>
+                <div class="field">
+                    <label for="score">Skor</label>
+                    <input id="score" type="number" min="0" placeholder="ör. 1500" required />
+                </div>
+                <button type="submit">Kuyruğa Ekle</button>
+                <button type="button" class="ghost" id="randomBtn">🎲 Rastgele Oyuncu</button>
+            </form>
+        </div>
+
+        <div class="card">
+            <h2>🏆 Leaderboard (Eşleşenler) <span class="badge" id="lbCount">0</span></h2>
+            <table>
+                <thead><tr><th class="rank">#</th><th>Kullanıcı</th><th>Skor</th></tr></thead>
+                <tbody id="lbBody"></tbody>
+            </table>
+            <div class="empty" id="lbEmpty">Henüz eşleşme yok.</div>
+        </div>
+
+        <div class="card">
+            <h2>⏳ Bekleyen Kuyruk <span class="badge" id="wCount">0</span></h2>
+            <table>
+                <thead><tr><th>Kullanıcı</th><th>Skor</th></tr></thead>
+                <tbody id="wBody"></tbody>
+            </table>
+            <div class="empty" id="wEmpty">Bekleyen oyuncu yok.</div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script>
+        const $ = id => document.getElementById(id);
+
+        function toast(msg, isErr = false) {
+            const t = $('toast');
+            t.textContent = msg;
+            t.className = 'toast show' + (isErr ? ' err' : '');
+            setTimeout(() => t.className = 'toast', 2000);
+        }
+
+        async function addPlayer(userId, score) {
+            const res = await fetch('/api/matchmaking/queue', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId, score: Number(score) })
+            });
+            if (res.ok) {
+                toast(`✓ ${userId} (${score}) kuyruğa eklendi`);
+                refresh();
+            } else {
+                const err = await res.json().catch(() => ({}));
+                toast(err.message || 'Hata oluştu', true);
+            }
+        }
+
+        $('addForm').addEventListener('submit', e => {
+            e.preventDefault();
+            addPlayer($('userId').value.trim(), $('score').value);
+            $('userId').value = '';
+            $('score').value = '';
+            $('userId').focus();
+        });
+
+        $('randomBtn').addEventListener('click', () => {
+            const id = 'oyuncu-' + Math.floor(Math.random() * 10000);
+            const score = 1000 + Math.floor(Math.random() * 1000);
+            addPlayer(id, score);
+        });
+
+        function renderRows(body, empty, rows, fn) {
+            body.innerHTML = '';
+            empty.style.display = rows.length ? 'none' : 'block';
+            rows.forEach((r, i) => {
+                const tr = document.createElement('tr');
+                tr.innerHTML = fn(r, i);
+                body.appendChild(tr);
+            });
+        }
+
+        async function refresh() {
+            try {
+                const [lb, w] = await Promise.all([
+                    fetch('/api/matchmaking/leaderboard').then(r => r.json()),
+                    fetch('/api/matchmaking/waiting').then(r => r.json())
+                ]);
+                $('lbCount').textContent = lb.length;
+                $('wCount').textContent = w.length;
+                renderRows($('lbBody'), $('lbEmpty'), lb,
+                    (r, i) => `<td class="rank">${i + 1}</td><td>${r.userId}</td><td class="score">${r.score}</td>`);
+                renderRows($('wBody'), $('wEmpty'), w,
+                    r => `<td>${r.userId}</td><td class="score">${r.score}</td>`);
+            } catch (e) {
+                // API gecici olarak ulasilamazsa sessizce gec, sonraki tick'te tekrar dene
+            }
+        }
+
+        refresh();
+        setInterval(refresh, 2000);
+    </script>
+</body>
+</html>

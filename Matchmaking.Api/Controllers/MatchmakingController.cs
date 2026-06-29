@@ -51,6 +51,20 @@ public class MatchmakingController : ControllerBase
         return Ok(result);
     }
 
+    [HttpGet("waiting")]
+    public async Task<IActionResult> GetWaiting()
+    {
+        var db = _redis.GetDatabase();
+        // Eşleşme bekleyen oyuncular: skora göre artan sırada (matchmaking:queue)
+        var entries = await db.SortedSetRangeByScoreWithScoresAsync("matchmaking:queue");
 
+        var result = entries.Select(e => new
+        {
+            UserId = e.Element.ToString(),
+            Score = e.Score
+        });
+
+        return Ok(result);
+    }
 }
 
