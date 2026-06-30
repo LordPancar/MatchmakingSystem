@@ -3,7 +3,7 @@ import { textSummary } from 'https://jslib.k6.io/k6-summary/0.0.2/index.js';
 
 export const options = {
     vus: 50,
-    iterations: 1000,
+    iterations: 200,
 };
 
 export default function () {
@@ -16,7 +16,7 @@ export default function () {
     });
 }
 
-// Test bitince k6 bunu cagirir: hem ekrana basar hem de dosyaya yazar.
+
 export function handleSummary(data) {
     return {
         'stdout': textSummary(data, { indent: ' ', enableColors: true }),

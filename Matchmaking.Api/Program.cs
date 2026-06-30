@@ -1,4 +1,6 @@
 using MassTransit;
+using Matchmaking.Api.Consumers;
+using Matchmaking.Api.Hubs;
 using StackExchange.Redis;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -7,6 +9,7 @@ var redisConnection = builder.Configuration["Redis:ConnectionString"] ?? "localh
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
+builder.Services.AddSignalR();
 builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 {
     var options = ConfigurationOptions.Parse(redisConnection);
@@ -17,6 +20,8 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
 
 builder.Services.AddMassTransit(x =>
 {
+    x.AddConsumer<MatchCompletedConsumer>();
+
     x.UsingRabbitMq((context, cfg) =>
     {
         cfg.Host(rabbitHost, "/", h =>
@@ -24,6 +29,7 @@ builder.Services.AddMassTransit(x =>
             h.Username("guest");
             h.Password("guest");
         });
+        cfg.ConfigureEndpoints(context);
     });
 });
 
@@ -40,5 +46,6 @@ app.UseStaticFiles();
 
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<MatchmakingHub>("/hub/matchmaking");
 
 app.Run();

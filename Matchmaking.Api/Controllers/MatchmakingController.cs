@@ -55,13 +55,23 @@ public class MatchmakingController : ControllerBase
     public async Task<IActionResult> GetWaiting()
     {
         var db = _redis.GetDatabase();
-        // Eşleşme bekleyen oyuncular: skora göre artan sırada (matchmaking:queue)
+        // Bekleyen oyuncular (skora göre) + giriş zamanları (hash)
         var entries = await db.SortedSetRangeByScoreWithScoresAsync("matchmaking:queue");
+        var joined = await db.HashGetAllAsync("matchmaking:joined");
+        var joinedMap = joined.ToDictionary(h => h.Name.ToString(), h => (long)h.Value);
 
-        var result = entries.Select(e => new
+        var result = entries.Select(e =>
         {
-            UserId = e.Element.ToString(),
-            Score = e.Score
+            var userId = e.Element.ToString();
+            DateTime? joinedAtUtc = joinedMap.TryGetValue(userId, out var ms)
+                ? DateTimeOffset.FromUnixTimeMilliseconds(ms).UtcDateTime
+                : null;
+            return new
+            {
+                UserId = userId,
+                Score = e.Score,
+                JoinedAtUtc = joinedAtUtc
+            };
         });
 
         return Ok(result);
