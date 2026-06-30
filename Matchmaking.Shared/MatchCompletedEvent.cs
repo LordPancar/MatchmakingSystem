@@ -9,5 +9,7 @@ public record MatchCompletedEvent
     public Guid MatchId { get; init; }
     public string Player1Id { get; init; } = String.Empty;
     public string Player2Id { get; init; } = String.Empty;
+    public string WinnerId { get; init; } = String.Empty;
+    public string LoserId { get; init; } = String.Empty;
     public DateTime CompletedAtUtc { get; init; } = DateTime.UtcNow;
 }

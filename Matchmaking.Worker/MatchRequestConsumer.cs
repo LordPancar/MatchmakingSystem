@@ -1,3 +1,4 @@
+using System.Text.Json;
 using MassTransit;
 using Matchmaking.Shared;
 using MatchMaking.Shared;
@@ -34,16 +35,47 @@ public class MatchRequestConsumer : IConsumer<MatchRequest>
 
         _logger.LogInformation("Eşleşme bulundu: {P1} vs {P2} (fark: {diff})", match.Player1Id, match.Player2Id, match.ScoreDifference);
 
-        // Bu eşleşmenin tek sahibi bu Worker — leaderboard ve event güvenle yazılır.
-        var db = _redis.GetDatabase();
-        await db.SortedSetAddAsync("leaderboard", match.Player1Id, match.Score1);
-        await db.SortedSetAddAsync("leaderboard", match.Player2Id, match.Score2);
+        // --- Maçı oyna: yazı-tura (50/50) ile kazananı belirle ---
+        bool player1Wins = Random.Shared.Next(2) == 0;
+        var (winnerId, winnerScore) = player1Wins
+            ? (match.Player1Id, match.Score1)
+            : (match.Player2Id, match.Score2);
+        var (loserId, loserScore) = player1Wins
+            ? (match.Player2Id, match.Score2)
+            : (match.Player1Id, match.Score1);
 
+        // --- Elo ile yeni puanları hesapla ve leaderboard'a yaz ---
+        var (winnerNew, loserNew) = EloCalculator.Apply(winnerScore, loserScore);
+
+        var db = _redis.GetDatabase();
+        await db.SortedSetAddAsync("leaderboard", winnerId, winnerNew);
+        await db.SortedSetAddAsync("leaderboard", loserId, loserNew);
+
+        _logger.LogInformation("Sonuç: {Winner} kazandı ({wOld}->{wNew}), {Loser} kaybetti ({lOld}->{lNew})",
+            winnerId, winnerScore, winnerNew, loserId, loserScore, loserNew);
+
+        // Maç geçmişine yaz (en yeni başta) ve son 50 ile sınırla.
+        var record = new MatchRecord
+        {
+            MatchId = match.MatchId,
+            WinnerId = winnerId,
+            LoserId = loserId,
+            WinnerScore = winnerNew,
+            LoserScore = loserNew,
+            CompletedAtUtc = DateTime.UtcNow
+        };
+        await db.ListLeftPushAsync("matchmaking:history", JsonSerializer.Serialize(record));
+        await db.ListTrimAsync("matchmaking:history", 0, 49);
+
+        // Leaderboard güncellendikten SONRA event yayınla — böylece SignalR push
+        // tetiklendiğinde arayüz güncel puanları okur (sıralama doğru olur).
         await context.Publish(new MatchCompletedEvent
         {
             MatchId = match.MatchId,
             Player1Id = match.Player1Id,
-            Player2Id = match.Player2Id
+            Player2Id = match.Player2Id,
+            WinnerId = winnerId,
+            LoserId = loserId
         });
 
         _logger.LogInformation("MatchCompletedEvent yayınlandı: {MatchId}", match.MatchId);

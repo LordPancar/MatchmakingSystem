@@ -17,6 +17,7 @@ builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
     return ConnectionMultiplexer.Connect(options);
 });
 builder.Services.AddSingleton<RedisMatchmaker>();
+builder.Services.AddHostedService<RankedSimulator>();
 
 builder.Services.AddMassTransit(x =>
 {

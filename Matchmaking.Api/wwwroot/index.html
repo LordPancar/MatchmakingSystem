@@ -30,6 +30,7 @@
 <body>
     <h1>Matchmaking</h1>
     <p class="note">Canlı güncelleme (SignalR) — <span id="conn">bağlanıyor...</span></p>
+    <p><label><input type="checkbox" id="simToggle" /> Ranked simülatör (otomatik maçlar)</label></p>
 
     <form id="addForm">
         <input id="userId" placeholder="Kullanıcı ID" required />
@@ -43,7 +44,7 @@
         <div>
             <h2>Leaderboard (Eşleşenler) — <span id="lbCount">0</span></h2>
             <table>
-                <thead><tr><th>#</th><th>Kullanıcı</th><th>Skor</th></tr></thead>
+                <thead><tr><th>#</th><th>Kullanıcı</th><th>Skor</th><th>Durum</th><th></th></tr></thead>
                 <tbody id="lbBody"></tbody>
             </table>
         </div>
@@ -55,6 +56,12 @@
             </table>
         </div>
     </div>
+
+    <h2 style="margin-top:25px">Son Maçlar — <span id="hCount">0</span></h2>
+    <table>
+        <thead><tr><th>Kazanan</th><th>Kaybeden</th><th>Yeni Skorlar</th><th>Zaman</th></tr></thead>
+        <tbody id="hBody"></tbody>
+    </table>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.7/signalr.min.js"></script>
     <script>
@@ -94,6 +101,37 @@
             body.innerHTML = rows.map(fn).join('');
         }
 
+        async function deletePlayer(userId) {
+            await fetch('/api/matchmaking/player/' + encodeURIComponent(userId), { method: 'DELETE' });
+            $('msg').textContent = userId + ' silindi';
+            refresh();
+        }
+
+        async function toggleOnline(userId, online) {
+            await fetch('/api/matchmaking/player/' + encodeURIComponent(userId) + '/online', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: online })
+            });
+            refresh();
+        }
+
+        async function loadSimulator() {
+            try {
+                const s = await fetch('/api/matchmaking/simulator').then(r => r.json());
+                $('simToggle').checked = s.enabled;
+            } catch (e) { }
+        }
+
+        $('simToggle').addEventListener('change', async e => {
+            await fetch('/api/matchmaking/simulator', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: e.target.checked })
+            });
+            $('msg').textContent = 'Simülatör ' + (e.target.checked ? 'açık' : 'kapalı');
+        });
+
         // Bekleyenleri (yereldeki veriden) saniye sayaci guncel olacak sekilde ciz
         function renderWaiting() {
             $('wCount').textContent = waitingData.length;
@@ -107,15 +145,25 @@
 
         async function refresh() {
             try {
-                const [lb, w] = await Promise.all([
+                const [lb, w, h] = await Promise.all([
                     fetch('/api/matchmaking/leaderboard').then(r => r.json()),
-                    fetch('/api/matchmaking/waiting').then(r => r.json())
+                    fetch('/api/matchmaking/waiting').then(r => r.json()),
+                    fetch('/api/matchmaking/history').then(r => r.json())
                 ]);
                 $('lbCount').textContent = lb.length;
                 renderRows($('lbBody'), lb,
-                    (r, i) => `<tr><td>${i + 1}</td><td>${r.userId}</td><td>${r.score}</td></tr>`);
+                    (r, i) => `<tr><td>${i + 1}</td><td>${r.userId}</td><td>${r.score}</td>` +
+                              `<td>${r.online ? 'online' : 'offline'}</td>` +
+                              `<td><button onclick="toggleOnline('${r.userId}', ${!r.online})">${r.online ? 'Offline yap' : 'Online yap'}</button> ` +
+                              `<button onclick="deletePlayer('${r.userId}')">Sil</button></td></tr>`);
                 waitingData = w;
                 renderWaiting();
+
+                $('hCount').textContent = h.length;
+                renderRows($('hBody'), h, m => {
+                    const t = new Date(m.completedAtUtc).toLocaleTimeString();
+                    return `<tr><td>${m.winnerId}</td><td>${m.loserId}</td><td>${m.winnerScore} / ${m.loserScore}</td><td>${t}</td></tr>`;
+                });
             } catch (e) {
                 // API gecici ulasilamazsa sessizce gec
             }
@@ -145,6 +193,7 @@
             .catch(() => { $('conn').textContent = 'bağlanamadı (yine de çalışır)'; });
 
         // Ilk yukleme
+        loadSimulator();
         refresh();
 
         // Saniye sayacini her saniye fetch'siz guncelle

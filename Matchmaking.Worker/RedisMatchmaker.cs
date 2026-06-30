@@ -53,7 +53,9 @@ if bestId ~= nil then
 end
 
 redis.call('ZADD', KEYS[1], score, userId)
-redis.call('HSET', KEYS[2], userId, nowMs)
+-- HSETNX: giriş zamanını sadece ilk kez yaz. Oyuncu zaten bekliyorsa
+-- (simülatör tekrar kuyruğa soksa bile) zaman korunur, sayaç sıfırlanmaz.
+redis.call('HSETNX', KEYS[2], userId, nowMs)
 return nil
 ";
 
