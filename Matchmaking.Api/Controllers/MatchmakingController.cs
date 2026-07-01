@@ -22,24 +22,17 @@ public class MatchmakingController : ControllerBase
     }
 
     [HttpPost("queue")]
-    public async Task<IActionResult> QueueRequest([FromBody] MatchRequest request)
+    public async Task<IActionResult> QueueRequest()
     {
-        if (string.IsNullOrWhiteSpace(request.UserId))
-        {
-            return BadRequest(new { message = "UserId boş olamaz." });
-        }
+        var userId = User.Identity?.Name;                 // kimlik token'dan
+        if (string.IsNullOrWhiteSpace(userId)) return Unauthorized();
 
-        if (request.Score < 0)
-        {
-            return BadRequest(new { message = "Score negatif olamaz." });
-        }
-
-        // Kuyruğa giren oyuncu "online" (aktif) sayılır — simülatör bunları oynatır.
         var db = _redis.GetDatabase();
-        await db.SetAddAsync("players:online", request.UserId);
+        var score = (int?)(await db.SortedSetScoreAsync("leaderboard", userId)) ?? 1000;  // puan Redis'ten
+        await db.SetAddAsync("players:online", userId);
 
-        await _publishEndpoint.Publish(request);
-        return Accepted(new { message = "Kuyruğa alındı.", requestId = request.RequestId });
+        await _publishEndpoint.Publish(new MatchRequest { UserId = userId, Score = score });
+        return Accepted(new { message = "Kuyruğa alındı.", userId, score });
     }
 
     [HttpGet("leaderboard")]
@@ -170,6 +163,22 @@ public class MatchmakingController : ControllerBase
         }
         return Ok(new { userId, online = body.Enabled });
     }
+
+    [HttpPost("seed")]
+    public async Task<IActionResult> Seed([FromBody] SeedRequest body)
+    {
+        var userId = string.IsNullOrWhiteSpace(body.UserId) ? "bot-" + Random.Shared.Next(10000) : body.UserId;
+        var score = body.Score ?? (1000 + Random.Shared.Next(1000));
+        if (score < 0) return BadRequest(new { message = "Score negatif olamaz." });
+
+        var db = _redis.GetDatabase();
+        await db.SortedSetAddAsync("leaderboard", userId, score);
+        await db.SetAddAsync("players:online", userId);
+        return Ok(new { userId, score });
+    }
+
+    [HttpGet("seed/random")]
+    public Task<IActionResult> SeedRandom() => Seed(new SeedRequest(null, null));
 }
 
 public record UpdateScoreRequest
@@ -182,3 +191,4 @@ public record ToggleRequest
     public bool Enabled { get; init; }
 }
 
+public record SeedRequest(string? UserId, int? Score);

@@ -15,6 +15,17 @@ services:
     volumes:
       - redis-datax:/data
 
+  postgres:
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=matchmaking
+      - POSTGRES_PASSWORD=matchmaking
+      - POSTGRES_DB=matchmaking
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   matchmaking-api:
     build:
       context: .
@@ -24,9 +35,13 @@ services:
     environment:
       - RabbitMq__Host=rabbitmq
       - Redis__ConnectionString=redis:6379
+      - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=matchmaking;Username=matchmaking;Password=matchmaking
+      - Jwt__Key=super-secret-dev-key-please-change-0123456789abcdef
+      - Jwt__Issuer=matchmaking
     depends_on:
       - rabbitmq
       - redis
+      - postgres
 
   matchmaking-worker:
     build:
@@ -42,3 +57,4 @@ services:
 volumes:
   rabbitmq-datax:
   redis-datax:
+  postgres-data:

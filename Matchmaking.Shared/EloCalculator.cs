@@ -1,10 +1,5 @@
 namespace Matchmaking.Shared;
 
-/// <summary>
-/// Basit Elo puan hesabı. Maç bitince kazananın ve kaybedenin yeni puanını verir.
-/// Güçlü rakibi yenmek çok kazandırır; zayıfa kaybetmek çok kaybettirir.
-/// Saf (yan etkisiz) bir fonksiyon olduğu için kolayca birim test edilebilir.
-/// </summary>
 public static class EloCalculator
 {
     public const int KFactor = 32;
