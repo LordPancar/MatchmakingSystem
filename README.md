@@ -1,8 +1,8 @@
 # MatchmakingSystem
 
-Distributed, horizontally scalable matchmaking system with an **active ranked ladder**, built with .NET 10, RabbitMQ, Redis, SignalR and Docker.
+Distributed, horizontally scalable matchmaking system with **user accounts** and an **active ranked ladder**, built with .NET 10, RabbitMQ, Redis, PostgreSQL, SignalR and Docker.
 
-Players queue with a score; the system pairs any two players whose scores are close (≤ 100 apart). Matching state is shared in Redis and mutated atomically with a Lua script, so **multiple worker instances can run concurrently** without races, double-matches, or lost players. Matched players "play" a game, ratings move with Elo, and a background simulator keeps online players competing so the leaderboard is always alive. The dashboard updates in real time via SignalR.
+Users register/log in (JWT auth), then queue for matches. The system pairs any two players whose ratings are close (≤ 100 apart). Matching state is shared in Redis and mutated atomically with a Lua script, so **multiple worker instances can run concurrently** without races, double-matches, or lost players. Matched players "play" a game, ratings move with Elo, and a background simulator keeps online players competing so the leaderboard is always alive. The dashboard updates in real time via SignalR.
 
 ## Architecture
 
@@ -10,27 +10,38 @@ Players queue with a score; the system pairs any two players whose scores are cl
                  ┌─────────────┐
 Client ──HTTP──► │     API     │ ──publish(MatchRequest)──► RabbitMQ
    ▲             └─────────────┘                               │
-   │ SignalR push       │  ▲ consume(MatchCompletedEvent)      │ distributes
-   │ (live updates)     │  │  → broadcast to browsers          │ (competing consumers)
-   │                    ▼  │                       ┌───────────┼───────────┐
-   │             ┌─────────────┐                   ▼           ▼           ▼
-   └──────────── │    Redis    │ ◄──────────  ┌─────────┐ ┌─────────┐ ┌─────────┐
-                 │  (shared)   │  atomic Lua  │ Worker 1│ │ Worker 2│ │ Worker N│
-                 └─────────────┘  match/Elo   └─────────┘ └─────────┘ └─────────┘
-                                                    ▲
-                                        RankedSimulator re-queues online players
+   │ SignalR push    │   │  ▲ consume(MatchCompletedEvent)     │ distributes
+   │ (live updates)  │   │  │  → broadcast to browsers         │ (competing consumers)
+   │                 ▼   ▼  │                       ┌──────────┼──────────┐
+   │        ┌──────────┐ ┌────────┐                 ▼          ▼          ▼
+   └─────── │ Postgres │ │ Redis  │ ◄──────────  ┌──────┐  ┌──────┐  ┌──────┐
+            │ accounts │ │(shared)│  atomic Lua  │Worker│  │Worker│  │Worker│
+            └──────────┘ └────────┘  match/Elo   └──────┘  └──────┘  └──────┘
+                                                     ▲
+                                    RankedSimulator re-queues online players
 ```
 
-- **API** — REST endpoints, serves the web UI, reads state from Redis, and pushes live updates to browsers via SignalR
+- **API** — auth + REST endpoints, serves the web UI, reads/writes game state in Redis, and pushes live updates to browsers via SignalR
 - **Worker** — consumes `MatchRequest`, matches atomically in Redis, resolves the game (coin flip + Elo), records history, publishes `MatchCompletedEvent`; also runs the ranked simulator. **Scales to N instances.**
 - **RabbitMQ** — async message broker; distributes messages across workers (competing consumers)
-- **Redis** — all shared state (queue, leaderboard, join times, online set, simulator flag, match history)
+- **Redis** — all game state (queue, leaderboard, join times, online set, simulator flag, match history)
+- **PostgreSQL** — user accounts only (username + password hash). Ratings stay in Redis.
 
 > Workers never talk to each other directly — they coordinate **only through shared Redis state**, which is why the matching step must be atomic.
 
+## Accounts & authentication
+
+- **Register** (`POST /api/auth/register`) creates a user in PostgreSQL (password hashed with `PasswordHasher`, PBKDF2), seeds a **1000 starting rating** in the Redis leaderboard, marks the user **online**, and returns a **JWT**.
+- **Login** (`POST /api/auth/login`) verifies the password, marks the user online, and returns a JWT.
+- The token carries the username; subsequent requests send it as `Authorization: Bearer <token>`.
+- **Queue is identity-based:** `POST /api/matchmaking/queue` is `[Authorize]` — there is no free-text userId. The identity comes from the token and the rating is read from the leaderboard, so nobody can queue as someone else.
+- **Logout** (`POST /api/auth/logout`) marks the user offline.
+
+> Data split: **PostgreSQL** = who you are (account), **Redis** = your live rating/standing. Accounts are relational and persistent; ratings are hot game state.
+
 ## How it works (end to end)
 
-1. Client sends `POST /queue` with `userId` + `score`; the API marks the player **online**, publishes a `MatchRequest`, and returns `202 Accepted`
+1. A logged-in client calls `POST /queue` with its token; the API resolves the identity, marks it **online**, publishes a `MatchRequest` (userId + current rating), and returns `202 Accepted`
 2. RabbitMQ delivers the message to one worker
 3. The worker runs an **atomic Lua script** that either:
    - finds the closest waiting player within ±100, removes them from the queue, returns the match, **or**
@@ -53,9 +64,10 @@ Because find-and-remove happens inside a single Lua script, Redis executes it at
 - .NET 10 (ASP.NET Core Web API + Worker Service)
 - MassTransit 8.x + RabbitMQ (with message retry)
 - StackExchange.Redis (Sorted Sets, Hash, Set, List + Lua scripting)
+- PostgreSQL + Entity Framework Core (user accounts)
+- JWT bearer authentication (`Microsoft.AspNetCore.Authentication.JwtBearer`)
 - SignalR (real-time push to the browser)
-- xUnit (unit tests)
-- k6 / bombardier (load testing)
+- xUnit (unit tests) · k6 / bombardier (load testing)
 - Docker + Docker Compose
 
 ## Getting Started
@@ -69,11 +81,14 @@ docker compose up --build
 | Container | Description | Port |
 |-----------|-------------|------|
 | `rabbitmq` | Message broker | `5672`, `15672` (management UI) |
-| `redis` | Shared state | `6379` |
-| `matchmaking-api` | REST API + web UI | `8080` |
+| `redis` | Game state | `6379` |
+| `postgres` | User accounts | `5432` |
+| `matchmaking-api` | REST API + auth + web UI | `8080` |
 | `matchmaking-worker` | Background consumer + simulator (scalable) | — |
 
 Then open the **web UI** at **http://localhost:8080/**.
+
+Config passed via env in `docker-compose.yml`: `ConnectionStrings__Postgres`, `Jwt__Key`, `Jwt__Issuer` (the `__` maps to nested config, e.g. `Jwt:Key`). The API creates the DB schema on startup with `EnsureCreated()` (retrying until Postgres is ready).
 
 ### Scaling workers
 
@@ -88,7 +103,8 @@ docker compose up -d --scale matchmaking-worker=1   # back to 1
 
 A lightweight dashboard served by the API at `http://localhost:8080/`:
 
-- **Add player** form (+ a "random player" button)
+- **Login / register** panel; once logged in, a **"Join queue"** button (queues you by identity) and **logout**
+- **Quick add (bot)** — seed test players without an account (dev helper)
 - **Ranked simulator** on/off switch
 - **Leaderboard** — matched players by rating, each with online/offline toggle and delete
 - **Waiting queue** — players still seeking an opponent, with live waiting duration
@@ -99,9 +115,18 @@ It's a static page under `Matchmaking.Api/wwwroot/`, served from the same origin
 
 ## API Endpoints
 
+### Auth
 | Method | Route | Description |
 |--------|-------|-------------|
-| `POST` | `/api/matchmaking/queue` | Queue a player `{ userId, score }` (marks them online) |
+| `POST` | `/api/auth/register` | Create account `{ username, password }` → returns JWT |
+| `POST` | `/api/auth/login` | Log in `{ username, password }` → returns JWT |
+| `POST` | `/api/auth/logout` | Mark offline (auth required) |
+| `GET`  | `/api/auth/me` | Current username (auth required) |
+
+### Matchmaking
+| Method | Route | Description |
+|--------|-------|-------------|
+| `POST` | `/api/matchmaking/queue` | **Auth required** — queue yourself (identity from token, rating from leaderboard) |
 | `GET`  | `/api/matchmaking/leaderboard` | Matched players + online status |
 | `GET`  | `/api/matchmaking/waiting` | Waiting players + join time |
 | `GET`  | `/api/matchmaking/history` | Last 50 matches |
@@ -109,6 +134,8 @@ It's a static page under `Matchmaking.Api/wwwroot/`, served from the same origin
 | `DELETE` | `/api/matchmaking/player/{userId}` | Remove a player from all structures |
 | `GET` / `POST` | `/api/matchmaking/simulator` | Read / set the simulator flag `{ enabled }` |
 | `POST` | `/api/matchmaking/player/{userId}/online` | Set online/offline `{ enabled }` |
+| `POST` | `/api/matchmaking/seed` | Dev: add a bot player `{ userId?, score? }` |
+| `GET`  | `/api/matchmaking/seed/random` | Dev: add a random bot (address-bar convenience) |
 
 Reads and simple CRUD go straight to Redis (fast); only the match request goes through the queue (command → queue, query → direct).
 
@@ -123,11 +150,22 @@ The browser connects to the `/hub/matchmaking` hub. When the worker finishes a m
 - **Redis** connections use `AbortOnConnectFail = false` — the client keeps retrying in the background instead of throwing on a momentary outage (API + Worker).
 - **MassTransit** retries a failing message (5 attempts, 500 ms apart) before faulting it.
 
-## Redis keys
+## Data stores
+
+**PostgreSQL** — `Users` table (via EF Core):
+
+| Column | Notes |
+|--------|-------|
+| `Id` | primary key |
+| `Username` | unique index |
+| `PasswordHash` | PBKDF2 hash (never plaintext) |
+| `CreatedAtUtc` | |
+
+**Redis keys:**
 
 | Key | Type | Holds |
 |-----|------|-------|
-| `leaderboard` | Sorted Set | userId → rating (matched players) |
+| `leaderboard` | Sorted Set | userId → rating |
 | `matchmaking:queue` | Sorted Set | userId → score (waiting players) |
 | `matchmaking:joined` | Hash | userId → join time (epoch ms) |
 | `players:online` | Set | online userIds |
@@ -149,7 +187,7 @@ Both tools target `POST /queue` and write output to `loadtest-results/` (git-ign
 Matchmaking.Test\k6-test.bat          # k6 (handleSummary → k6-result.txt + k6-summary.json)
 Matchmaking.Test\bombardier-test.bat  # bombardier (queue + leaderboard)
 ```
-Edit the variables at the top of the `.bat` files to change connection/request counts or the bombardier path.
+> Note: `POST /queue` now requires a JWT, so load scripts must send an `Authorization` header (or target the `seed` endpoint) to exercise the full path.
 
 ## Tests
 
@@ -162,11 +200,16 @@ Unit tests (`Matchmaking.Test`) cover the matching rule in `MatchmakingEngine`. 
 
 ```
 MatchmakingSystem/
-├── Matchmaking.Api/             # REST API + web UI + SignalR (producer & event consumer)
-│   ├── Controllers/MatchmakingController.cs
+├── Matchmaking.Api/             # REST API + auth + web UI + SignalR
+│   ├── Controllers/
+│   │   ├── MatchmakingController.cs
+│   │   └── AuthController.cs           # register / login / logout / me
 │   ├── Consumers/MatchCompletedConsumer.cs   # event → SignalR push
 │   ├── Hubs/MatchmakingHub.cs
-│   └── wwwroot/index.html                     # dashboard
+│   ├── Data/AppDbContext.cs           # EF Core DbContext (Users)
+│   ├── Models/User.cs                 # account entity
+│   ├── Services/TokenService.cs       # JWT generation
+│   └── wwwroot/index.html             # dashboard
 ├── Matchmaking.Worker/          # Background worker (consumer, scalable)
 │   ├── MatchRequestConsumer.cs  # match → coin flip + Elo → leaderboard + history
 │   ├── RedisMatchmaker.cs       # atomic Redis + Lua matching + join times
