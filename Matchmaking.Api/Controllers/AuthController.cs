@@ -52,7 +52,7 @@ public class AuthController : ControllerBase
         await redis.SortedSetAddAsync("leaderboard", body.Username, StartingRating);
         await redis.SetAddAsync("players:online", body.Username);
 
-        return Ok(new { token = _tokens.CreateToken(body.Username), username = body.Username });
+        return Ok(new { token = _tokens.CreateToken(user.Username, user.IsAdmin), username = user.Username, isAdmin = user.IsAdmin });
     }
 
     [HttpPost("login")]
@@ -72,8 +72,7 @@ public class AuthController : ControllerBase
 
         await _redis.GetDatabase().SetAddAsync("players:online", user.Username);
 
-        return Ok(new { token = _tokens.CreateToken(body.Username), username = body.Username });
-
+        return Ok(new { token = _tokens.CreateToken(user.Username, user.IsAdmin), username = user.Username, isAdmin = user.IsAdmin });
     }
 
     [HttpPost("logout")]
@@ -88,5 +87,5 @@ public class AuthController : ControllerBase
 
     [HttpGet("me")]
     [Authorize]
-    public IActionResult Me() => Ok(new { username = User.Identity?.Name });
+    public IActionResult Me() => Ok(new { username = User.Identity?.Name, isAdmin = User.IsInRole("Admin") });
 }

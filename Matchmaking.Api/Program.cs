@@ -17,6 +17,8 @@ var pgConnection = builder.Configuration.GetConnectionString("Postgres")
     ?? "Host=localhost;Port=5432;Database=matchmaking;Username=matchmaking;Password=matchmaking";
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "dev-only-change-me-super-secret-key-0123456789abcdef";
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "matchmaking";
+var adminUsername = builder.Configuration["Admin:Username"] ?? "admin";
+var adminPassword = builder.Configuration["Admin:Password"] ?? "admin123";
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -72,6 +74,16 @@ using (var scope = app.Services.CreateScope())
     {
         try { db.Database.EnsureCreated(); break; }
         catch { await Task.Delay(2000); }
+    }
+
+    // Admin hesabı yoksa yapılandırmadan oluştur (varsayılan admin/admin123).
+    if (!db.Users.Any(u => u.IsAdmin) && !db.Users.Any(u => u.Username == adminUsername))
+    {
+        var hasher = new Microsoft.AspNetCore.Identity.PasswordHasher<Matchmaking.Api.Models.User>();
+        var admin = new Matchmaking.Api.Models.User { Username = adminUsername, IsAdmin = true };
+        admin.PasswordHash = hasher.HashPassword(admin, adminPassword);
+        db.Users.Add(admin);
+        db.SaveChanges();
     }
 }
 

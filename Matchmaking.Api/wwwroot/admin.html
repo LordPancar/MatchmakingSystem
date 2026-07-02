@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin — Matchmaking</title>
+    <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="app">
+    <h1>Admin Paneli</h1>
+    <p class="note">
+        Admin: <b id="who"></b>
+        · <a href="index.html">Oyuncu paneli</a>
+        · <button id="logoutBtn">Çıkış</button>
+        · <label><input type="checkbox" id="simToggle" /> Ranked simülatör</label>
+    </p>
+
+    <div style="margin:10px 0; font-size:13px">
+        <b>Bot ekle:</b>
+        <input id="botId" placeholder="bot adı (boş=rastgele)" />
+        <input id="botScore" type="number" placeholder="skor (boş=rastgele)" />
+        <button id="addBotBtn">Ekle</button>
+        <button id="randomBtn">Rastgele</button>
+        <span id="seedMsg"></span>
+    </div>
+
+    <div style="margin:10px 0; font-size:13px">
+        <b>Hesap ekle:</b>
+        <input id="newUser" placeholder="kullanıcı adı" />
+        <input id="newPass" type="password" placeholder="parola" />
+        <label><input type="checkbox" id="newAdmin" /> admin</label>
+        <button id="addUserBtn">Oluştur</button>
+        <span id="userMsg"></span>
+    </div>
+
+    <div class="columns">
+        <div>
+            <h2>Kayıtlı Hesaplar — <span id="uCount">0</span></h2>
+            <table>
+                <thead><tr><th>#</th><th>Kullanıcı</th><th>Admin</th><th>Kayıt</th><th></th></tr></thead>
+                <tbody id="uBody"></tbody>
+            </table>
+        </div>
+        <div>
+            <h2>Leaderboard (oyuncular + botlar) — <span id="lbCount">0</span></h2>
+            <table>
+                <thead><tr><th>#</th><th>Kullanıcı</th><th>Skor</th><th>Durum</th><th></th></tr></thead>
+                <tbody id="lbBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="admin.js"></script>
+</body>
+</html>

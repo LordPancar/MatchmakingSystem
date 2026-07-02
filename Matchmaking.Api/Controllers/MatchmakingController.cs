@@ -1,6 +1,7 @@
 ﻿using MassTransit;
 using Matchmaking.Shared;
 using MatchMaking.Shared;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using StackExchange.Redis;
 using System.Collections;
@@ -22,6 +23,7 @@ public class MatchmakingController : ControllerBase
     }
 
     [HttpPost("queue")]
+    [Authorize]
     public async Task<IActionResult> QueueRequest()
     {
         var userId = User.Identity?.Name;                 // kimlik token'dan
@@ -95,6 +97,7 @@ public class MatchmakingController : ControllerBase
     // Bir oyuncunun leaderboard puanını günceller. Basit/hızlı bir işlem olduğu
     // için kuyruğa gerek yok; doğrudan Redis'e yazılır (ZADD atomiktir).
     [HttpPut("player/{userId}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> UpdatePlayer(string userId, [FromBody] UpdateScoreRequest body)
     {
         if (body.Score < 0)
@@ -115,6 +118,7 @@ public class MatchmakingController : ControllerBase
 
     // Bir oyuncuyu tüm yapılardan siler: leaderboard, bekleyen kuyruk ve giriş zamanları.
     [HttpDelete("player/{userId}")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> DeletePlayer(string userId)
     {
         var db = _redis.GetDatabase();
@@ -140,6 +144,7 @@ public class MatchmakingController : ControllerBase
 
     // Ranked simülatörü açar/kapatır (Redis'teki ortak bayrağı yazar; Worker bunu her turda okur).
     [HttpPost("simulator")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SetSimulator([FromBody] ToggleRequest body)
     {
         var db = _redis.GetDatabase();
@@ -150,6 +155,7 @@ public class MatchmakingController : ControllerBase
     // Bir oyuncuyu online/offline yapar. Offline oyuncu leaderboard'da kalır
     // (puanı korunur) ama simülatör onu maça sokmaz.
     [HttpPost("player/{userId}/online")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> SetOnline(string userId, [FromBody] ToggleRequest body)
     {
         var db = _redis.GetDatabase();
@@ -165,6 +171,7 @@ public class MatchmakingController : ControllerBase
     }
 
     [HttpPost("seed")]
+    [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Seed([FromBody] SeedRequest body)
     {
         var userId = string.IsNullOrWhiteSpace(body.UserId) ? "bot-" + Random.Shared.Next(10000) : body.UserId;
@@ -178,6 +185,7 @@ public class MatchmakingController : ControllerBase
     }
 
     [HttpGet("seed/random")]
+    [Authorize(Roles = "Admin")]
     public Task<IActionResult> SeedRandom() => Seed(new SeedRequest(null, null));
 }
 

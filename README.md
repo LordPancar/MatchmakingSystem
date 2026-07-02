@@ -39,6 +39,15 @@ Client ──HTTP──► │     API     │ ──publish(MatchRequest)──
 
 > Data split: **PostgreSQL** = who you are (account), **Redis** = your live rating/standing. Accounts are relational and persistent; ratings are hot game state.
 
+### Roles & admin
+
+- Users have an `IsAdmin` flag. The JWT carries a `Role=Admin` claim for admins, and admin-only endpoints are guarded with `[Authorize(Roles = "Admin")]`.
+- **Bootstrap:** on first startup (when no admin exists) an admin is seeded from `Admin__Username` / `Admin__Password` (defaults `admin` / `admin123`). Changing these later has no effect once an admin exists — use the admin panel or a fresh DB.
+- **Runtime management** (admin panel / `api/admin`): create accounts, promote/demote (`IsAdmin`), and delete accounts. The last remaining admin cannot be demoted or deleted (lockout guard).
+- Admin actions (bot seeding, deleting/updating players, simulator toggle, viewing all accounts) are **admin-only**; a normal user calling them gets `403 Forbidden`.
+
+> JWT caveat: demoting a user takes effect on their **next login** — an already-issued token keeps its role until it expires (stateless tokens).
+
 ## How it works (end to end)
 
 1. A logged-in client calls `POST /queue` with its token; the API resolves the identity, marks it **online**, publishes a `MatchRequest` (userId + current rating), and returns `202 Accepted`
@@ -88,7 +97,9 @@ docker compose up --build
 
 Then open the **web UI** at **http://localhost:8080/**.
 
-Config passed via env in `docker-compose.yml`: `ConnectionStrings__Postgres`, `Jwt__Key`, `Jwt__Issuer` (the `__` maps to nested config, e.g. `Jwt:Key`). The API creates the DB schema on startup with `EnsureCreated()` (retrying until Postgres is ready).
+Config passed via env in `docker-compose.yml`: `ConnectionStrings__Postgres`, `Jwt__Key`, `Jwt__Issuer`, `Admin__Username`, `Admin__Password` (the `__` maps to nested config, e.g. `Jwt:Key`). The API creates the DB schema on startup with `EnsureCreated()` (retrying until Postgres is ready) and seeds the first admin.
+
+Default admin: **`admin` / `admin123`** (change via `Admin__*` env). Log in with it to reach the admin panel.
 
 ### Scaling workers
 
@@ -101,17 +112,13 @@ docker compose up -d --scale matchmaking-worker=1   # back to 1
 
 ## Web UI
 
-A lightweight dashboard served by the API at `http://localhost:8080/`:
+Static pages under `Matchmaking.Api/wwwroot/`, served from the same origin as the API (no CORS setup needed). CSS/JS are split into `styles.css` + per-page `.js` files.
 
-- **Login / register** panel; once logged in, a **"Join queue"** button (queues you by identity) and **logout**
-- **Quick add (bot)** — seed test players without an account (dev helper)
-- **Ranked simulator** on/off switch
-- **Leaderboard** — matched players by rating, each with online/offline toggle and delete
-- **Waiting queue** — players still seeking an opponent, with live waiting duration
-- **Recent matches** — last 50 results (winner, loser, new scores, time)
-- Updates in real time via **SignalR** (no constant polling)
+- **`login.html`** — login / register. On success it stores the JWT in `localStorage` and redirects (admins → `admin.html`, others → `index.html`).
+- **`index.html`** (player dashboard) — **Join queue** (by identity) + logout, and **read-only** leaderboard, waiting queue (live wait duration) and recent matches. Shows an **Admin Panel** link if you're an admin. Updates in real time via **SignalR**.
+- **`admin.html`** (admin only) — everything above plus admin controls: **bot seeding**, **add / promote / demote / delete accounts** (full account list from the DB), delete/toggle players, and the **ranked simulator** switch.
 
-It's a static page under `Matchmaking.Api/wwwroot/`, served from the same origin as the API (no CORS setup needed).
+Each protected page has a client-side guard (redirects to `login.html` without a token) — but that's only UX; the real enforcement is server-side `[Authorize]` / `[Authorize(Roles="Admin")]`.
 
 ## API Endpoints
 
@@ -124,18 +131,27 @@ It's a static page under `Matchmaking.Api/wwwroot/`, served from the same origin
 | `GET`  | `/api/auth/me` | Current username (auth required) |
 
 ### Matchmaking
+| Method | Route | Auth | Description |
+|--------|-------|------|-------------|
+| `POST` | `/api/matchmaking/queue` | user | Queue yourself (identity from token, rating from leaderboard) |
+| `GET`  | `/api/matchmaking/leaderboard` | public | Matched players + online status |
+| `GET`  | `/api/matchmaking/waiting` | public | Waiting players + join time |
+| `GET`  | `/api/matchmaking/history` | public | Last 50 matches |
+| `GET`  | `/api/matchmaking/simulator` | public | Read the simulator flag |
+| `POST` | `/api/matchmaking/simulator` | **admin** | Set the simulator flag `{ enabled }` |
+| `PUT`  | `/api/matchmaking/player/{userId}` | **admin** | Update a player's rating `{ score }` |
+| `DELETE` | `/api/matchmaking/player/{userId}` | **admin** | Remove a player from Redis structures |
+| `POST` | `/api/matchmaking/player/{userId}/online` | **admin** | Set online/offline `{ enabled }` |
+| `POST` | `/api/matchmaking/seed` | **admin** | Add a bot player `{ userId?, score? }` |
+| `GET`  | `/api/matchmaking/seed/random` | **admin** | Add a random bot |
+
+### Admin (all `[Authorize(Roles="Admin")]`)
 | Method | Route | Description |
 |--------|-------|-------------|
-| `POST` | `/api/matchmaking/queue` | **Auth required** — queue yourself (identity from token, rating from leaderboard) |
-| `GET`  | `/api/matchmaking/leaderboard` | Matched players + online status |
-| `GET`  | `/api/matchmaking/waiting` | Waiting players + join time |
-| `GET`  | `/api/matchmaking/history` | Last 50 matches |
-| `PUT`  | `/api/matchmaking/player/{userId}` | Update a player's rating `{ score }` |
-| `DELETE` | `/api/matchmaking/player/{userId}` | Remove a player from all structures |
-| `GET` / `POST` | `/api/matchmaking/simulator` | Read / set the simulator flag `{ enabled }` |
-| `POST` | `/api/matchmaking/player/{userId}/online` | Set online/offline `{ enabled }` |
-| `POST` | `/api/matchmaking/seed` | Dev: add a bot player `{ userId?, score? }` |
-| `GET`  | `/api/matchmaking/seed/random` | Dev: add a random bot (address-bar convenience) |
+| `GET`  | `/api/admin/users` | List all accounts (no password hash) |
+| `POST` | `/api/admin/users` | Create account `{ username, password, isAdmin }` |
+| `PUT`  | `/api/admin/users/{username}/role` | Promote / demote `{ isAdmin }` |
+| `DELETE` | `/api/admin/users/{username}` | Delete account (DB + Redis) |
 
 Reads and simple CRUD go straight to Redis (fast); only the match request goes through the queue (command → queue, query → direct).
 
@@ -202,14 +218,19 @@ Unit tests (`Matchmaking.Test`) cover the matching rule in `MatchmakingEngine`. 
 MatchmakingSystem/
 ├── Matchmaking.Api/             # REST API + auth + web UI + SignalR
 │   ├── Controllers/
-│   │   ├── MatchmakingController.cs
-│   │   └── AuthController.cs           # register / login / logout / me
+│   │   ├── MatchmakingController.cs    # queue / leaderboard / admin-only player+sim ops
+│   │   ├── AuthController.cs           # register / login / logout / me
+│   │   └── AdminController.cs          # account management (admin only)
 │   ├── Consumers/MatchCompletedConsumer.cs   # event → SignalR push
 │   ├── Hubs/MatchmakingHub.cs
 │   ├── Data/AppDbContext.cs           # EF Core DbContext (Users)
-│   ├── Models/User.cs                 # account entity
-│   ├── Services/TokenService.cs       # JWT generation
-│   └── wwwroot/index.html             # dashboard
+│   ├── Models/User.cs                 # account entity (+ IsAdmin)
+│   ├── Services/TokenService.cs       # JWT generation (with role claim)
+│   └── wwwroot/                       # split static frontend
+│       ├── styles.css
+│       ├── login.html  + login.js     # login / register
+│       ├── index.html  + app.js       # player dashboard
+│       └── admin.html  + admin.js     # admin panel
 ├── Matchmaking.Worker/          # Background worker (consumer, scalable)
 │   ├── MatchRequestConsumer.cs  # match → coin flip + Elo → leaderboard + history
 │   ├── RedisMatchmaker.cs       # atomic Redis + Lua matching + join times

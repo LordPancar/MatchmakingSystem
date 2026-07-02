@@ -38,6 +38,8 @@ services:
       - ConnectionStrings__Postgres=Host=postgres;Port=5432;Database=matchmaking;Username=matchmaking;Password=matchmaking
       - Jwt__Key=super-secret-dev-key-please-change-0123456789abcdef
       - Jwt__Issuer=matchmaking
+      - Admin__Username=Sancar
+      - Admin__Password=Sancar123
     depends_on:
       - rabbitmq
       - redis

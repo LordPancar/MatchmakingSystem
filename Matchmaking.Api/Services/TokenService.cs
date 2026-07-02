@@ -16,9 +16,13 @@ public class TokenService
         _issuer = config["Jwt:Issuer"] ?? "matchmaking";
     }
 
-    public string CreateToken(string username)
+    public string CreateToken(string username, bool isAdmin = false)
     {
-        var claims = new[] { new Claim(ClaimTypes.Name, username) };
+        var claims = new List<Claim> { new(ClaimTypes.Name, username) };
+        if (isAdmin)
+        {
+            claims.Add(new Claim(ClaimTypes.Role, "Admin"));   // [Authorize(Roles="Admin")] bunu okur
+        }
         var creds = new SigningCredentials(new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_key)), SecurityAlgorithms.HmacSha256);
 
         var token = new JwtSecurityToken(
